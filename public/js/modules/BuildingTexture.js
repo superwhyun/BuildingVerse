@@ -13,9 +13,9 @@ export class BuildingTexture {
         const roomThetaLength = width * thetaPerSector;
         const startTheta = (x / this.building.sectorCount) * 2 * Math.PI;
 
-        // Banner geometry - Fixed height relative to single floor to prevent vertical stretching
-        // Previously: roomHeightUnits * 0.25 (scaled with room height, causing stretch)
-        const bannerHeight = this.building.floorHeight * 0.4;
+        // Banner geometry - 20% of the TOTAL room height
+        const roomTotalHeight = height * this.building.floorHeight;
+        const bannerHeight = roomTotalHeight * 0.2;
         const radius = this.building.radius + 0.55; // Slightly in front of room
 
         const geom = new THREE.CylinderGeometry(
@@ -27,18 +27,35 @@ export class BuildingTexture {
         );
         this.fixUVs(geom);
 
+        // Calculate Text Resolution to match Physical Aspect Ratio (Avoid Distortion)
+        // Horizontal: 512px per sector width
+        // Vertical: Need corresponding pixels to keep 1:1 aspect ratio
+
+        // Physical Width of 1 sector = radius * thetaPerSector
+        const sectorArcLength = this.building.radius * thetaPerSector;
+        const pixelsPerUnit = 512 / sectorArcLength;
+
+        // Canvas Height needed to maintain square pixels
+        const targetCanvasHeight = Math.round(bannerHeight * pixelsPerUnit);
+
+        // Clamp min height for readability on very small rooms if needed, but scaling is preferred
+        const canvasHeight = Math.max(64, targetCanvasHeight);
+
+        // Font size proportional to canvas height (approx 70% of height)
+        const fontSize = Math.floor(canvasHeight * 0.7);
+
         // Texture with text
         const ctxPre = document.createElement('canvas').getContext('2d');
-        ctxPre.font = 'bold 80px sans-serif';
+        ctxPre.font = `bold ${fontSize}px sans-serif`;
         const textMetrics = ctxPre.measureText(bannerText + "   ");
         const textWidth = textMetrics.width;
 
         const meshNominalWidth = 512 * width;
-        const canvasWidth = Math.max(meshNominalWidth, textWidth + 100);
+        const canvasWidth = Math.max(meshNominalWidth, textWidth + canvasHeight); // Add padding relative to height
 
         const canvas = document.createElement('canvas');
         canvas.width = canvasWidth;
-        canvas.height = 128; // height is fixed resolution-wise
+        canvas.height = canvasHeight;
         const ctx = canvas.getContext('2d');
 
         // Background - Transparent or semi-transparent
@@ -46,7 +63,7 @@ export class BuildingTexture {
         ctx.fillRect(0, 0, canvas.width, canvas.height);
 
         // Text
-        ctx.font = 'bold 80px sans-serif';
+        ctx.font = `bold ${fontSize}px sans-serif`;
         ctx.fillStyle = 'white';
         ctx.textAlign = 'left';
         ctx.textBaseline = 'middle';
@@ -66,9 +83,12 @@ export class BuildingTexture {
 
         const mesh = new THREE.Mesh(geom, mat);
 
-        // Position Y: Bottom 1/4
+        // Position Y: Bottom 20% area centered
+        // Room spans from [f * h] to [f * h + roomTotalHeight]
+        // Bottom 20% center is at 0.1 of roomTotalHeight relative to bottom
         const f = roomGeoParams.y;
-        const posY = (f * this.building.floorHeight) + (bannerHeight / 2) + 0.1; // +0.1 padding from floor
+        const roomBottomY = f * this.building.floorHeight;
+        const posY = roomBottomY + (bannerHeight / 2) + 0.1; // +0.1 padding from floor
         mesh.position.y = posY;
 
         // Store for update
