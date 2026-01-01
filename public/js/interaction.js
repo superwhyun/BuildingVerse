@@ -1,4 +1,6 @@
 import * as THREE from 'three';
+import { UIManager } from './modules/UIManager.js';
+import { HighlightManager } from './modules/HighlightManager.js';
 
 export class Interaction {
     constructor(sceneManager, worldManager) {
@@ -7,14 +9,11 @@ export class Interaction {
         this.raycaster = new THREE.Raycaster();
         this.mouse = new THREE.Vector2();
 
-        this.modal = document.getElementById('room-modal');
-        this.form = document.getElementById('room-form');
-        this.setupModal();
+        // Modules
+        this.uiManager = new UIManager(worldManager);
+        this.highlightManager = new HighlightManager(sceneManager, worldManager);
 
         // Hover state
-        this.hoveredObject = null;
-        this.currentHighlightKey = null;
-        this.highlightMesh = null;
         this.lastEventX = 0;
         this.lastEventY = 0;
 
@@ -88,7 +87,7 @@ export class Interaction {
     }
 
     onMouseMove(event) {
-        if (!this.modal.classList.contains('hidden')) return;
+        if (!this.uiManager.modal.classList.contains('hidden')) return;
 
         this.updateMouse(event);
         this.raycaster.setFromCamera(this.mouse, this.sceneManager.camera);
@@ -124,7 +123,7 @@ export class Interaction {
 
                 const isColliding = activeBuilding.checkCollision(x, y, w, h);
                 const color = isColliding ? 0xff0000 : 0xffff00;
-                this.highlightRange(activeBuilding, x, y, w, h, color);
+                this.highlightManager.highlightRange(activeBuilding, x, y, w, h, color);
             }
             return; // Don't do hover logic while dragging
         }
@@ -135,24 +134,23 @@ export class Interaction {
 
         if (intersects.length > 0) {
             const object = intersects[0].object;
-            this.clearHighlight();
-            if (this.hoveredObject !== object) {
-                this.resetHover();
-                this.hoveredObject = object;
-                this.startHoverEffect(object);
+            this.highlightManager.clearHighlight();
+            if (this.highlightManager.hoveredObject !== object) {
+                this.highlightManager.resetHover();
+                this.highlightManager.startHoverEffect(object);
             } else {
-                this.updateTooltipPosition(object);
+                this.highlightManager.updateTooltipPosition(object);
             }
         } else {
-            this.resetHover();
+            this.highlightManager.resetHover();
 
             // Empty Slot Hover (Single)
             const intersectsBody = this.raycaster.intersectObject(activeBuilding.mesh);
             if (intersectsBody.length > 0) {
                 const pos = this.getGridPos(intersectsBody[0], activeBuilding);
-                this.highlightRange(activeBuilding, pos.x, pos.y, 1, 1);
+                this.highlightManager.highlightRange(activeBuilding, pos.x, pos.y, 1, 1);
             } else {
-                this.clearHighlight();
+                this.highlightManager.clearHighlight();
             }
         }
     }
@@ -188,9 +186,9 @@ export class Interaction {
 
                 // Open creation modal with selected range if valid
                 if (!activeBuilding.checkCollision(x, y, w, h)) {
-                    this.showModalForNew(this.dragBuildingId, x, y, w, h);
+                    this.uiManager.showModalForNew(this.dragBuildingId, x, y, w, h);
                 } else {
-                    this.clearHighlight();
+                    this.highlightManager.clearHighlight();
                 }
             }
         }
@@ -200,7 +198,10 @@ export class Interaction {
     }
 
     onClick(event) {
-        if (this.blockClick) return;
+        if (this.blockClick) {
+            console.log("Click blocked by drag release");
+            return;
+        }
 
         // Only handle ROOM clicks (Edit Mode). Empty slot clicks are handled by MouseDown/Up (Drag)
         if (event.target.closest('#ui-layer') || event.target.closest('#room-modal')) return;
@@ -211,296 +212,27 @@ export class Interaction {
         this.raycaster.setFromCamera(this.mouse, this.sceneManager.camera);
 
         const activeBuilding = this.worldManager.buildings.get(this.worldManager.activeBuildingId);
-        if (!activeBuilding) return;
+        if (!activeBuilding) {
+            console.warn("No active building found");
+            return;
+        }
 
         const roomMeshes = Array.from(activeBuilding.rooms.values());
+        console.log(`Checking intersection against ${roomMeshes.length} rooms`);
+
         const intersectsRooms = this.raycaster.intersectObjects(roomMeshes);
 
         if (intersectsRooms.length > 0) {
             const hit = intersectsRooms[0];
             const roomData = hit.object.userData.room;
-            this.showModalForRoom(roomData);
-        }
-    }
-
-    // --- Visualization ---
-
-    highlightRange(building, startX, startY, width, height, color = 0xffff00) {
-        const key = `${building.id}-${startX}-${startY}-${width}-${height}-${color.toString(16)}`;
-        if (this.currentHighlightKey === key) return;
-
-        this.clearHighlight();
-        this.currentHighlightKey = key;
-
-        // Calculate Geometry params
-        const thetaPerSector = (2 * Math.PI) / building.sectorCount;
-        const startTheta = (startX / building.sectorCount) * 2 * Math.PI;
-        const thetaLength = width * thetaPerSector;
-
-        // Highlight covers the range of sectors. 
-        // Height covers range of floors.
-        const highlightHeight = height * building.floorHeight;
-
-        const panelRadius = building.radius + 0.2;
-
-        // Create base cylinder segment
-        const segmentGeom = new THREE.CylinderGeometry(
-            panelRadius, panelRadius,
-            highlightHeight - 0.2, // gap
-            Math.max(4, width * 2), // segments
-            1, true,
-            startTheta, thetaLength
-        );
-
-        // Edges
-        const edges = new THREE.EdgesGeometry(segmentGeom, 15);
-        const highlightMat = new THREE.LineBasicMaterial({
-            color: color,
-            linewidth: 2
-        });
-
-        this.highlightMesh = new THREE.LineSegments(edges, highlightMat);
-
-        // Position Y: Center of the vertical range
-        // bottomY = startY * H
-        const centerY = (startY * building.floorHeight) + (highlightHeight / 2);
-
-        this.highlightMesh.position.y = centerY;
-
-        building.group.add(this.highlightMesh);
-        document.body.style.cursor = 'crosshair';
-
-        segmentGeom.dispose();
-        this.sceneManager.requestRender();
-    }
-
-    clearHighlight() {
-        if (this.highlightMesh) {
-            if (this.highlightMesh.parent) {
-                this.highlightMesh.parent.remove(this.highlightMesh);
-            }
-            if (this.highlightMesh.geometry) this.highlightMesh.geometry.dispose();
-            if (this.highlightMesh.material) this.highlightMesh.material.dispose();
-            this.highlightMesh = null;
-            document.body.style.cursor = 'default';
-            this.sceneManager.requestRender();
-        }
-        this.currentHighlightKey = null;
-    }
-
-    startHoverEffect(object) {
-        if (!this.animatedMeshes) this.animatedMeshes = new Set();
-
-        // Store original props if first time
-        if (!object.userData.originalPos) {
-            object.userData.originalPos = object.position.clone();
-        }
-
-        // Calculate Target Logic
-        const building = this.worldManager.buildings.get(object.userData.buildingId);
-        if (building) {
-            const room = object.userData.room;
-            const angle = ((room.x + room.width / 2) / building.sectorCount) * 2 * Math.PI;
-
-            // Direction Vector from center
-            const dirX = Math.sin(angle);
-            const dirZ = Math.cos(angle);
-
-            const R = building.radius;
-            const popAmount = 0.5; // Visual pop distance
-
-            let shift;
-
-            if (object.geometry.type === 'PlaneGeometry') {
-                // GIF (Plane): Simply move outward by popAmount
-                // Because it is flat, we don't need to compensate for curvature expansion
-                shift = popAmount;
-            } else {
-                // Standard Room (Cylinder): Compensate for scale expansion
-                const targetVisualR = R + popAmount;
-                const geometricR = R * 1.2;
-                shift = targetVisualR - geometricR;
-            }
-
-            // Target Position (Original + Shift)
-            // Original is (0, y, 0).
-            const orig = object.userData.originalPos;
-            object.userData.targetPos = new THREE.Vector3(
-                orig.x + dirX * shift,
-                orig.y,
-                orig.z + dirZ * shift
-            );
+            console.log("Room clicked:", roomData);
+            this.uiManager.showModalForRoom(roomData);
         } else {
-            object.userData.targetPos = object.position.clone();
-        }
-
-        object.userData.targetScale = 1.2;
-        this.animatedMeshes.add(object);
-
-        document.body.style.cursor = 'pointer';
-
-        const title = object.userData.room.data.title;
-        if (title) {
-            const tooltip = document.getElementById('tooltip');
-            tooltip.textContent = title;
-            tooltip.classList.remove('hidden');
-            this.updateTooltipPosition(object);
-        }
-        this.sceneManager.requestRender();
-    }
-
-    updateTooltipPosition(object) {
-        const vector = new THREE.Vector3();
-        object.getWorldPosition(vector);
-        vector.y += 0.5;
-        vector.project(this.sceneManager.camera);
-
-        const x = (vector.x * .5 + .5) * window.innerWidth;
-        const y = (-(vector.y * .5) + .5) * window.innerHeight;
-
-        const tooltip = document.getElementById('tooltip');
-        tooltip.style.left = `${x}px`;
-        tooltip.style.top = `${y}px`;
-    }
-
-    resetHover() {
-        if (this.hoveredObject) {
-            if (!this.animatedMeshes) this.animatedMeshes = new Set();
-
-            this.hoveredObject.userData.targetScale = 1.0;
-            if (this.hoveredObject.userData.originalPos) {
-                this.hoveredObject.userData.targetPos = this.hoveredObject.userData.originalPos.clone();
-            }
-
-            this.animatedMeshes.add(this.hoveredObject);
-
-            this.hoveredObject = null;
-            document.body.style.cursor = 'default';
-            document.getElementById('tooltip').classList.add('hidden');
-            this.sceneManager.requestRender();
+            console.log("Click missed all rooms");
         }
     }
 
     update(delta) {
-        if (!this.animatedMeshes || this.animatedMeshes.size === 0) return;
-
-        const lerpSpeed = 8.0;
-        const tolerance = 0.005;
-
-        for (const mesh of this.animatedMeshes) {
-            // Scale
-            const targetScale = mesh.userData.targetScale || 1.0;
-            const currentScale = mesh.scale.x;
-            const newScale = THREE.MathUtils.lerp(currentScale, targetScale, lerpSpeed * delta);
-            mesh.scale.set(newScale, newScale, newScale);
-
-            // Position interpolation
-            let posDone = true;
-            if (mesh.userData.targetPos) {
-                mesh.position.lerp(mesh.userData.targetPos, lerpSpeed * delta);
-                if (mesh.position.distanceTo(mesh.userData.targetPos) > tolerance) {
-                    posDone = false;
-                }
-            }
-
-            const scaleDone = Math.abs(newScale - targetScale) < tolerance;
-
-            if (scaleDone && posDone) {
-                mesh.scale.set(targetScale, targetScale, targetScale);
-                if (mesh.userData.targetPos) {
-                    mesh.position.copy(mesh.userData.targetPos);
-                }
-                this.animatedMeshes.delete(mesh);
-            }
-        }
-        this.sceneManager.requestRender();
-    }
-
-    // --- Modal Logic ---
-
-    setupModal() {
-        document.getElementById('btn-cancel').addEventListener('click', () => this.hideModal());
-
-        document.getElementById('btn-delete').addEventListener('click', (e) => {
-            e.preventDefault();
-            this.deleteCurrentRoom();
-        });
-
-        this.form.addEventListener('submit', (e) => {
-            e.preventDefault();
-            this.saveRoom();
-        });
-    }
-
-    showModalForNew(buildingId, x, y, w = 1, h = 1) {
-        this.currentRoomId = null;
-        this.pendingGridPos = { buildingId, x, y };
-
-        document.getElementById('room-width').value = w;
-        document.getElementById('room-height').value = h;
-        document.getElementById('room-title').value = '';
-        document.getElementById('room-image').value = '';
-        document.getElementById('room-url').value = '';
-        document.getElementById('room-banner').value = '';
-
-        document.getElementById('btn-delete').style.display = 'none';
-        this.modal.classList.remove('hidden');
-    }
-
-    showModalForRoom(room) {
-        this.currentRoomId = room.id;
-        this.pendingGridPos = { buildingId: room.buildingId, x: room.x, y: room.y };
-
-        document.getElementById('room-width').value = room.width;
-        document.getElementById('room-height').value = room.height;
-        document.getElementById('room-title').value = room.data.title || '';
-        document.getElementById('room-image').value = room.data.imageUrl || '';
-        document.getElementById('room-url').value = room.data.url || '';
-        document.getElementById('room-banner').value = room.data.bannerText || '';
-
-        document.getElementById('btn-delete').style.display = 'inline-block';
-        this.modal.classList.remove('hidden');
-    }
-
-    hideModal() {
-        this.modal.classList.add('hidden');
-    }
-
-    async saveRoom() {
-        const width = parseInt(document.getElementById('room-width').value);
-        const height = parseInt(document.getElementById('room-height').value);
-        const title = document.getElementById('room-title').value;
-        const imageUrl = document.getElementById('room-image').value;
-        const url = document.getElementById('room-url').value;
-        const bannerText = document.getElementById('room-banner').value;
-
-        const roomData = { width, height, data: { title, imageUrl, url, bannerText } };
-
-        if (this.currentRoomId) {
-            await fetch(`/api/rooms/${this.currentRoomId}`, {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(roomData)
-            });
-        } else {
-            Object.assign(roomData, this.pendingGridPos);
-            await fetch('/api/rooms', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(roomData)
-            });
-        }
-
-        this.hideModal();
-        this.worldManager.loadRooms(this.pendingGridPos.buildingId);
-    }
-
-    async deleteCurrentRoom() {
-        if (!this.currentRoomId) return;
-        if (confirm("Are you sure you want to delete this room?")) {
-            await fetch(`/api/rooms/${this.currentRoomId}`, { method: 'DELETE' });
-            this.hideModal();
-            this.worldManager.loadRooms(this.pendingGridPos.buildingId);
-        }
+        this.highlightManager.update(delta);
     }
 }

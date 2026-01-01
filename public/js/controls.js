@@ -18,20 +18,22 @@ export class Controls {
     }
 
     onKeyDown(event) {
-        switch (event.key.toLowerCase()) {
-            case 'w': this.keys.w = true; break;
-            case 'a': this.keys.a = true; break;
-            case 's': this.keys.s = true; break;
-            case 'd': this.keys.d = true; break;
+        if (event.target.tagName === 'INPUT' || event.target.tagName === 'TEXTAREA') return;
+        switch (event.code) {
+            case 'KeyW': this.keys.w = true; break;
+            case 'KeyA': this.keys.a = true; break;
+            case 'KeyS': this.keys.s = true; break;
+            case 'KeyD': this.keys.d = true; break;
         }
     }
 
     onKeyUp(event) {
-        switch (event.key.toLowerCase()) {
-            case 'w': this.keys.w = false; break;
-            case 'a': this.keys.a = false; break;
-            case 's': this.keys.s = false; break;
-            case 'd': this.keys.d = false; break;
+        if (event.target.tagName === 'INPUT' || event.target.tagName === 'TEXTAREA') return;
+        switch (event.code) {
+            case 'KeyW': this.keys.w = false; break;
+            case 'KeyA': this.keys.a = false; break;
+            case 'KeyS': this.keys.s = false; break;
+            case 'KeyD': this.keys.d = false; break;
         }
     }
 

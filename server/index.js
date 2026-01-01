@@ -63,7 +63,8 @@ app.get('/api/buildings/:id/rooms', async (req, res) => {
 app.post('/api/rooms', async (req, res) => {
     try {
         const id = await db.createRoom(req.body);
-        res.status(201).json({ id, ...req.body });
+        // Ensure ID is set last to overwrite any empty string ID in body
+        res.status(201).json({ ...req.body, id });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
@@ -73,7 +74,8 @@ app.post('/api/rooms', async (req, res) => {
 app.put('/api/rooms/:id', async (req, res) => {
     try {
         await db.updateRoom(req.params.id, req.body);
-        res.json({ success: true });
+        // Return updated object so frontend can update mesh
+        res.json({ id: req.params.id, ...req.body });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
