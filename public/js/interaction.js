@@ -308,9 +308,19 @@ export class Interaction {
 
             const R = building.radius;
             const popAmount = 0.5; // Visual pop distance
-            const targetVisualR = R + popAmount;
-            const geometricR = R * 1.2;
-            const shift = targetVisualR - geometricR;
+
+            let shift;
+
+            if (object.geometry.type === 'PlaneGeometry') {
+                // GIF (Plane): Simply move outward by popAmount
+                // Because it is flat, we don't need to compensate for curvature expansion
+                shift = popAmount;
+            } else {
+                // Standard Room (Cylinder): Compensate for scale expansion
+                const targetVisualR = R + popAmount;
+                const geometricR = R * 1.2;
+                shift = targetVisualR - geometricR;
+            }
 
             // Target Position (Original + Shift)
             // Original is (0, y, 0).
