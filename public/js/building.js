@@ -42,7 +42,6 @@ export class Building {
 
     initStructure() {
         // 0. Hit Target (Invisible Outer Cylinder)
-        // This is crucial for raycasting empty slots
         const hitGeometry = new THREE.CylinderGeometry(
             this.radius,
             this.radius,
@@ -51,7 +50,6 @@ export class Building {
             1,
             true // open ended
         );
-        // Invisible but raycastable
         const hitMaterial = new THREE.MeshBasicMaterial({
             color: 0xff0000,
             transparent: true,
@@ -61,11 +59,10 @@ export class Building {
         });
         this.mesh = new THREE.Mesh(hitGeometry, hitMaterial);
         this.mesh.position.y = (this.floorCount * this.floorHeight) / 2;
-        // Important: name it for debugging
         this.mesh.userData = { isBuildingBody: true };
         this.group.add(this.mesh);
 
-        // 1. Inner Core (Elevator Shaft) - Solid concretish look
+        // 1. Inner Core (Elevator Shaft)
         const coreGeometry = new THREE.CylinderGeometry(
             this.radius * 0.4,
             this.radius * 0.4,
@@ -77,49 +74,141 @@ export class Building {
         coreAnalysis.position.y = (this.floorCount * this.floorHeight) / 2;
         this.group.add(coreAnalysis);
 
-        // 2. Floor Plates (Slabs) - Thin discs at each floor level
-        const slabGeometry = new THREE.CylinderGeometry(
-            this.radius, // slightly bigger to show edge
+        // 2. Fragmented Floors (InstancedMesh)
+        const thetaPerSector = (2 * Math.PI) / this.sectorCount;
+        const wedgeGeometry = new THREE.CylinderGeometry(
             this.radius,
-            0.5, // thin
-            this.sectorCount, // match sectors for alignment
-            1
+            this.radius,
+            0.5, // Thickness
+            16, // Smoother curve
+            1,
+            false,
+            0, thetaPerSector
         );
         const slabMaterial = new THREE.MeshPhongMaterial({ color: 0x444444 });
 
-        for (let i = 0; i <= this.floorCount; i++) {
-            const slab = new THREE.Mesh(slabGeometry, slabMaterial);
-            slab.position.y = i * this.floorHeight;
-            this.group.add(slab);
-        }
+        // Total instances: (floorCount + 1) * sectorCount
+        const totalFloors = (this.floorCount + 1) * this.sectorCount;
+        this.floorMesh = new THREE.InstancedMesh(wedgeGeometry, slabMaterial, totalFloors);
+        this.floorMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
 
-        // 3. Partition Walls (Vertical dividers between sectors)
-        // We want simple planes/boxes radiating from core to outer radius
-        // Thickness 0.2
-        const wallLength = this.radius * 0.6; // Core 0.4 -> Outer 1.0 = 0.6 length
-        const wallHeight = this.floorCount * this.floorHeight;
+        const dummy = new THREE.Object3D();
+        let idx = 0;
+
+        for (let f = 0; f <= this.floorCount; f++) {
+            for (let s = 0; s < this.sectorCount; s++) {
+                dummy.position.set(0, f * this.floorHeight, 0);
+                dummy.rotation.set(0, s * thetaPerSector, 0);
+                dummy.scale.set(1, 1, 1);
+                dummy.updateMatrix();
+                this.floorMesh.setMatrixAt(idx++, dummy.matrix);
+            }
+        }
+        this.group.add(this.floorMesh);
+
+        // 3. Fragmented Walls (InstancedMesh)
+        const wallLength = this.radius * 0.6;
+        const wallHeight = this.floorHeight;
 
         const wallGeometry = new THREE.BoxGeometry(0.2, wallHeight, wallLength);
         const wallMaterial = new THREE.MeshPhongMaterial({ color: 0x555555 });
 
-        for (let i = 0; i < this.sectorCount; i++) {
-            const angle = (i / this.sectorCount) * Math.PI * 2;
+        const totalWalls = this.floorCount * this.sectorCount;
+        this.wallMesh = new THREE.InstancedMesh(wallGeometry, wallMaterial, totalWalls);
+        this.wallMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
 
-            const wall = new THREE.Mesh(wallGeometry, wallMaterial);
+        idx = 0;
+        const dist = this.radius * 0.7;
 
-            // Position: Center of the wall needs to be offset
-            // Local Z offset should be radius * 0.4 (core) + half wall width
-            // Actually it's simpler: it goes from 0.4R to 1.0R. Center is 0.7R
-            const dist = this.radius * 0.7;
+        for (let f = 0; f < this.floorCount; f++) {
+            for (let s = 0; s < this.sectorCount; s++) {
+                const angle = (s / this.sectorCount) * Math.PI * 2;
 
-            wall.position.x = Math.sin(angle) * dist;
-            wall.position.z = Math.cos(angle) * dist;
-            wall.position.y = wallHeight / 2;
+                dummy.position.x = Math.sin(angle) * dist;
+                dummy.position.z = Math.cos(angle) * dist;
+                dummy.position.y = (f * this.floorHeight) + (wallHeight / 2);
 
-            wall.rotation.y = angle;
-
-            this.group.add(wall);
+                dummy.rotation.set(0, angle, 0);
+                dummy.scale.set(1, 1, 1);
+                dummy.updateMatrix();
+                this.wallMesh.setMatrixAt(idx++, dummy.matrix);
+            }
         }
+        this.group.add(this.wallMesh);
+    }
+
+    updateStructureVisibility() {
+        if (!this.floorMesh || !this.wallMesh) return;
+
+        const dummy = new THREE.Object3D();
+
+        const hiddenFloors = new Set();
+        const hiddenWalls = new Set();
+
+        for (const roomMesh of this.rooms.values()) {
+            const r = roomMesh.userData.room;
+            const { x, y, width, height } = r;
+
+            // Internal Floors (Horizontal dividers)
+            for (let f = y + 1; f < y + height; f++) {
+                for (let i = 0; i < width; i++) {
+                    const s = (x + i) % this.sectorCount;
+                    hiddenFloors.add(`${f},${s}`);
+                }
+            }
+
+            // Internal Walls (Vertical dividers)
+            for (let f = y; f < y + height; f++) {
+                for (let i = 1; i < width; i++) {
+                    const s = (x + i) % this.sectorCount; // Wall at start of sector s (which is right of s-1)
+                    // If room is sector 0,1. Wall at 1 is between 0 and 1.
+                    // i=1 -> s=1. Correct.
+                    hiddenWalls.add(`${f},${s}`);
+                }
+            }
+        }
+
+        // Apply Floors
+        let idx = 0;
+        const thetaPerSector = (2 * Math.PI) / this.sectorCount;
+
+        for (let f = 0; f <= this.floorCount; f++) {
+            for (let s = 0; s < this.sectorCount; s++) {
+                const isHidden = hiddenFloors.has(`${f},${s}`);
+                const scale = isHidden ? 0 : 1;
+
+                dummy.position.set(0, f * this.floorHeight, 0);
+                dummy.rotation.set(0, s * thetaPerSector, 0);
+                dummy.scale.set(scale, scale, scale);
+                dummy.updateMatrix();
+                this.floorMesh.setMatrixAt(idx++, dummy.matrix);
+            }
+        }
+        this.floorMesh.instanceMatrix.needsUpdate = true;
+
+        // Apply Walls
+        idx = 0;
+        const wallHeight = this.floorHeight;
+        const dist = this.radius * 0.7;
+
+        for (let f = 0; f < this.floorCount; f++) {
+            for (let s = 0; s < this.sectorCount; s++) {
+                const isHidden = hiddenWalls.has(`${f},${s}`);
+                const scale = isHidden ? 0 : 1;
+
+                const angle = (s / this.sectorCount) * Math.PI * 2;
+
+                dummy.position.x = Math.sin(angle) * dist;
+                dummy.position.z = Math.cos(angle) * dist;
+                dummy.position.y = (f * this.floorHeight) + (wallHeight / 2);
+
+                dummy.rotation.set(0, angle, 0);
+                dummy.scale.set(scale, scale, scale);
+                dummy.updateMatrix();
+                this.wallMesh.setMatrixAt(idx++, dummy.matrix);
+            }
+        }
+        this.wallMesh.instanceMatrix.needsUpdate = true;
     }
 
     addRoom(room) {
@@ -237,6 +326,9 @@ export class Building {
 
         this.group.add(mesh);
         this.rooms.set(room.id, mesh);
+
+        // Update structural visibility (Hide internal walls/floors)
+        this.updateStructureVisibility();
     }
 
     rebuildEmptyLabels() {
@@ -372,6 +464,10 @@ export class Building {
             }
         }
         this.banners = [];
+        this.activeGifs = [];
+
+        // Reset structural visibility
+        this.updateStructureVisibility();
     }
 
     createBanner(bannerText, roomGeoParams) {
