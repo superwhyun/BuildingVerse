@@ -19,6 +19,7 @@ CREATE TABLE IF NOT EXISTS rooms (
     y INTEGER NOT NULL, -- vertical grid index (floor)
     width INTEGER NOT NULL DEFAULT 1, -- horizontal span
     height INTEGER NOT NULL DEFAULT 1, -- vertical span
+    status TEXT NOT NULL DEFAULT 'pending', -- pending, approved, rejected
     data TEXT, -- JSON string for flexible metadata (url, imageUrl, title, description)
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (buildingId) REFERENCES buildings(id)

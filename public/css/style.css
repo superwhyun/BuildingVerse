@@ -162,6 +162,12 @@ button {
     color: white;
 }
 
+.success {
+    background: #2196F3;
+    /* Blue for approve, or Green. Prompt said 'Approve'. I'll use Blue to distinguish from Save? Or Green. Accent is Green. I'll use Blue. */
+    color: white;
+}
+
 .confirm-delete {
     background: #d32f2f;
     border: 2px solid #ffeb3b;

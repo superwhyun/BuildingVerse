@@ -18,7 +18,7 @@ class App {
     }
 
     async init() {
-        console.log("App Initialized");
+        // console.log("App Initialized");
         await this.worldManager.loadBuildings();
     }
 

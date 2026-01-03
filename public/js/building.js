@@ -19,6 +19,7 @@ export class Building {
         this.floorHeight = data.floorHeight;
 
         this.rooms = new Map(); // id -> Mesh
+        this.occupied = new Set(); // "sector-floor" strings
 
         // Modules
         this.labelManager = new BuildingLabel(this);
@@ -210,7 +211,8 @@ export class Building {
         const startTheta = (x / this.sectorCount) * 2 * Math.PI;
 
         // Check for GIF
-        const isGif = data.imageUrl && data.imageUrl.toLowerCase().endsWith('.gif');
+        const isPending = room.status === 'pending';
+        const isGif = !isPending && data.imageUrl && data.imageUrl.toLowerCase().endsWith('.gif');
         let mesh;
 
         if (isGif) {
@@ -270,29 +272,52 @@ export class Building {
             );
 
             let color = 0xadd8e6;
-            let map = null;
-
-            if (data.imageUrl) {
-                const loader = new THREE.TextureLoader();
-                map = loader.load(data.imageUrl);
-                color = 0xffffff;
+            if (room.status === 'pending') {
+                color = 0xffa500; // Orange for pending
             }
 
+            // Create material immediately so we can reference it in error callback
             const mat = new THREE.MeshLambertMaterial({
                 color: color,
-                map: map,
                 side: THREE.DoubleSide
             });
+
+            if (room.status === 'pending') {
+                mat.transparent = true;
+                mat.opacity = 0.7;
+            }
+
+            if (!isPending && data.imageUrl) {
+                mat.color.setHex(0xffffff);
+                const loader = new THREE.TextureLoader();
+                mat.map = loader.load(
+                    data.imageUrl,
+                    undefined, // onLoad
+                    undefined, // onProgress
+                    (err) => {
+                        // On Error (e.g., CORS, 404)
+                        console.error("Failed to load static image", data.imageUrl, err);
+                        const errObj = this.textureManager.createErrorTexture("CORS ERR");
+                        mat.map = errObj.texture;
+                        mat.needsUpdate = true;
+                    }
+                );
+                // Fix UVs since we have a texture
+                this.textureManager.fixUVs(geom);
+            }
 
             mesh = new THREE.Mesh(geom, mat);
             mesh.position.y = (y * this.floorHeight) + (roomHeight / 2);
 
-            if (data.imageUrl) this.textureManager.fixUVs(geom);
+            // if (data.imageUrl) this.textureManager.fixUVs(geom); // Moved upstream
         }
 
         mesh.userData = { isRoom: true, room: room, buildingId: this.id };
 
-        if (data.bannerText) {
+        if (isPending) {
+            // Show "Reserved" instead of user text
+            this.textureManager.createBanner("예약 중 (Reserved)", room);
+        } else if (data.bannerText) {
             this.textureManager.createBanner(data.bannerText, room);
         }
 
@@ -300,21 +325,43 @@ export class Building {
         this.rooms.set(room.id, mesh);
 
         // Update structural visibility (Hide internal walls/floors)
+        // Update structural visibility (Hide internal walls/floors)
         this.updateStructureVisibility();
+
+        // Mark as occupied
+        for (let i = 0; i < width; i++) {
+            const s = (x + i) % this.sectorCount;
+            for (let j = 0; j < height; j++) {
+                const f = y + j;
+                this.occupied.add(`${s}-${f}`);
+            }
+        }
     }
 
     rebuildEmptyLabels() {
         this.labelManager.rebuildEmptyLabels();
     }
 
-    checkCollision(x, y, w, h) {
-        if (!this.occupied) return false;
+    checkCollision(x, y, w, h, ignoreRoomId = null) {
+        // Collect occupied cells to ignore
+        const ignoreSet = new Set();
+        if (ignoreRoomId && this.rooms.has(ignoreRoomId)) {
+            const r = this.rooms.get(ignoreRoomId).userData.room;
+            for (let i = 0; i < r.width; i++) {
+                const s = (r.x + i) % this.sectorCount;
+                for (let j = 0; j < r.height; j++) {
+                    const f = r.y + j;
+                    ignoreSet.add(`${s}-${f}`);
+                }
+            }
+        }
 
         for (let i = 0; i < w; i++) {
             const s = (x + i) % this.sectorCount;
             for (let j = 0; j < h; j++) {
                 const f = y + j;
-                if (this.occupied.has(`${s}-${f}`)) return true;
+                const key = `${s}-${f}`;
+                if (this.occupied.has(key) && !ignoreSet.has(key)) return true;
             }
         }
         return false;
@@ -328,6 +375,7 @@ export class Building {
             if (mesh.material.map) mesh.material.map.dispose();
         }
         this.rooms.clear();
+        this.occupied.clear();
 
         this.labelManager.clearLabels();
         this.textureManager.clearTextures();

@@ -37,17 +37,21 @@
                 <input type="hidden" id="room-x">
                 <input type="hidden" id="room-y">
 
-                <label>Width (Sectors): <input type="number" id="room-width" min="1" max="5" value="1"></label>
-                <label>Height (Floors): <input type="number" id="room-height" min="1" max="5" value="1"></label>
+                <label>Width (Sectors): <input type="number" id="room-width" min="1" max="40" value="1"></label>
+                <label>Height (Floors): <input type="number" id="room-height" min="1" max="40" value="1"></label>
 
                 <label>Title: <input type="text" id="room-title" placeholder="Room Title"></label>
                 <label>Image URL: <input type="text" id="room-image" placeholder="https://..."></label>
                 <label>Link URL: <input type="text" id="room-url" placeholder="https://..."></label>
                 <label>Banner Text: <input type="text" id="room-banner" placeholder="Scrolling text..."></label>
 
+                <div id="room-error" style="color: red; margin-bottom: 10px; font-weight: bold; min-height: 20px;">
+                </div>
+
                 <div class="buttons">
                     <button type="button" id="btn-cancel">Cancel</button>
                     <button type="submit" id="btn-save">Save</button>
+                    <button type="button" id="btn-approve" class="success" style="display:none;">Approve</button>
                     <button type="button" id="btn-delete" class="danger">Delete</button>
                 </div>
             </form>

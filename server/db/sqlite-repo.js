@@ -18,7 +18,10 @@ class SqliteRepository extends DatabaseRepository {
                     reject(err);
                 } else {
                     console.log('Connected to SQLite database');
-                    this.initSchema().then(resolve).catch(reject);
+                    this.initSchema()
+                        .then(() => this.migrate())
+                        .then(resolve)
+                        .catch(reject);
                 }
             });
         });
@@ -37,6 +40,21 @@ class SqliteRepository extends DatabaseRepository {
                     console.log('Schema initialized');
                     resolve();
                 }
+            });
+        });
+    }
+
+    async migrate() {
+        return new Promise((resolve, reject) => {
+            // Simple migration: try to add status column if it doesn't exist
+            // SQLite doesn't support IF NOT EXISTS for ADD COLUMN directly in all versions nicely in one go without check, 
+            // but we can just try and ignore error if it says duplicate column.
+            const sql = `ALTER TABLE rooms ADD COLUMN status TEXT DEFAULT 'pending'`;
+            this.db.run(sql, (err) => {
+                if (err && !err.message.includes('duplicate column')) {
+                    console.warn("Migration warning (might be already applied):", err.message);
+                }
+                resolve();
             });
         });
     }
@@ -127,11 +145,11 @@ class SqliteRepository extends DatabaseRepository {
     }
 
     async createRoom(data) {
-        const { buildingId, x, y, width, height, data: metaData } = data;
+        const { buildingId, x, y, width, height, status, data: metaData } = data;
         const jsonStr = JSON.stringify(metaData || {});
         return new Promise((resolve, reject) => {
-            const sql = `INSERT INTO rooms (buildingId, x, y, width, height, data) VALUES (?, ?, ?, ?, ?, ?)`;
-            this.db.run(sql, [buildingId, x, y, width, height, jsonStr], function (err) {
+            const sql = `INSERT INTO rooms (buildingId, x, y, width, height, status, data) VALUES (?, ?, ?, ?, ?, ?, ?)`;
+            this.db.run(sql, [buildingId, x, y, width, height, status || 'pending', jsonStr], function (err) {
                 if (err) reject(err);
                 else resolve(this.lastID);
             });

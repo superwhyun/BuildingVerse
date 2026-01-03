@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { UIManager } from './modules/UIManager.js';
 import { HighlightManager } from './modules/HighlightManager.js';
+import { AdminManager } from './modules/AdminManager.js';
 
 export class Interaction {
     constructor(sceneManager, worldManager) {
@@ -11,6 +12,7 @@ export class Interaction {
 
         // Modules
         this.uiManager = new UIManager(worldManager);
+        this.adminManager = new AdminManager(this.uiManager);
         this.highlightManager = new HighlightManager(sceneManager, worldManager);
 
         // Hover state
@@ -199,7 +201,6 @@ export class Interaction {
 
     onClick(event) {
         if (this.blockClick) {
-            console.log("Click blocked by drag release");
             return;
         }
 
@@ -213,22 +214,19 @@ export class Interaction {
 
         const activeBuilding = this.worldManager.buildings.get(this.worldManager.activeBuildingId);
         if (!activeBuilding) {
-            console.warn("No active building found");
             return;
         }
 
         const roomMeshes = Array.from(activeBuilding.rooms.values());
-        console.log(`Checking intersection against ${roomMeshes.length} rooms`);
 
         const intersectsRooms = this.raycaster.intersectObjects(roomMeshes);
 
         if (intersectsRooms.length > 0) {
             const hit = intersectsRooms[0];
             const roomData = hit.object.userData.room;
-            console.log("Room clicked:", roomData);
             this.uiManager.showModalForRoom(roomData);
         } else {
-            console.log("Click missed all rooms");
+            // Click missed all rooms
         }
     }
 

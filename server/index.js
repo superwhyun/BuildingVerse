@@ -17,7 +17,17 @@ const db = new SqliteRepository();
 
 // --- API Routes ---
 
-// 1. Get all buildings
+// 1. Admin Login
+app.post('/api/admin/login', (req, res) => {
+    const { password } = req.body;
+    if (password === 'admin123') {
+        res.json({ success: true, token: 'admin-token' });
+    } else {
+        res.status(401).json({ error: 'Invalid password' });
+    }
+});
+
+// 2. Get all buildings
 app.get('/api/buildings', async (req, res) => {
     try {
         const buildings = await db.getAllBuildings();
